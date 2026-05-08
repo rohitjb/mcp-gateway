@@ -17,12 +17,17 @@ interface McpClientDeps {
 
 const productionDeps = (config: BackendConfig): McpClientDeps => ({
   makeClient: () => new Client({ name: 'mcp-gateway', version: '0.1.0' }) as SdkClient,
-  makeTransport: (c) =>
-    new StdioClientTransport({
-      command: c.command,
-      args: c.args ?? [],
-      env: c.env ? { ...process.env, ...c.env } : undefined,
-    }),
+  makeTransport: (c) => {
+    if (c.env) {
+      const env = Object.fromEntries(
+        Object.entries({ ...process.env, ...c.env }).filter(
+          (entry): entry is [string, string] => entry[1] !== undefined,
+        ),
+      ) as Record<string, string>
+      return new StdioClientTransport({ command: c.command, args: c.args ?? [], env })
+    }
+    return new StdioClientTransport({ command: c.command, args: c.args ?? [] })
+  },
 })
 
 export const connectMcpClient = async (
