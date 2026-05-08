@@ -1,0 +1,19 @@
+{
+  "firebase": {
+    "projectId": "your-firebase-project-id",
+    "credentialsPath": "/Users/you/.mcp-gateway/firebase-service-account.json"
+  },
+  "backends": {
+    "atlassian": {
+      "command": "npx",
+      "args": ["@atlassian/mcp-server-jira"]
+    },
+    "github": {
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "your-token-here"
+      }
+    }
+  }
+}
