@@ -17,12 +17,13 @@ describe('classify', () => {
     expect(classify('latest chat in channel')[0]).toBe('teams')
   })
 
-  it('returns all three backends when no keywords match', () => {
+  it('returns all backends when no keywords match', () => {
     const result = classify('something completely unrelated')
-    expect(result).toHaveLength(3)
+    expect(result).toHaveLength(4)
     expect(result).toContain('firebase')
     expect(result).toContain('atlassian')
     expect(result).toContain('teams')
+    expect(result).toContain('github')
   })
 
   it('ranks by keyword hit count — more matches = higher priority', () => {

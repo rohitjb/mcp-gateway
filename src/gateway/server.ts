@@ -11,7 +11,7 @@ import type { Role } from '../rbac/roleCache.js'
 const SEARCH_ALL_TOOL: Tool = {
   name: 'search_all',
   description:
-    'Search across all connected services (Atlassian, Firebase, Teams) using a natural language query. The gateway automatically routes to the most relevant backend.',
+    'Search across all connected services (Atlassian, Firebase, Teams, GitHub, Figma) using a natural language query. The gateway automatically routes to the most relevant backend.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -58,10 +58,12 @@ export const handleCallTool = async (
   try {
     const identity = await deps.detectIdentity()
     const role = await deps.getUserRole(identity.email)
+    process.stderr.write(`[rbac] tool=${toolName} email=${identity.email} role=${role}\n`)
     deps.checkAccess(toolName, role)
     return await deps.registry.callTool(toolName, args)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
+    process.stderr.write(`[rbac] blocked: ${message}\n`)
     return { content: [{ type: 'text', text: message }], isError: true }
   }
 }

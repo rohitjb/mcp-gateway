@@ -7,8 +7,17 @@ describe('isWriteOperation', () => {
     'atlassian_update_issue',
     'atlassian_create_page',
     'atlassian_update_page',
+    'atlassian_add_comment',
+    'atlassian_create_comment',
+    'atlassian_delete_issue',
+    'atlassian_edit_issue',
+    'atlassian_resolve_issue',
+    'atlassian_assign_issue',
     'teams_send_message',
     'teams_send_channel_message',
+    'teams_reply_message',
+    'github_create_issue',
+    'github_merge_pull_request',
   ])('returns true for write tool: %s', (tool) => {
     expect(isWriteOperation(tool)).toBe(true)
   })
@@ -17,10 +26,13 @@ describe('isWriteOperation', () => {
     'atlassian_search_issues',
     'atlassian_get_issue',
     'atlassian_list_pages',
+    'atlassian_get_page',
     'firebase_get_crashes',
     'firebase_get_analytics',
     'teams_list_channels',
     'teams_get_messages',
+    'github_list_issues',
+    'github_get_pull_request',
     'search_all',
   ])('returns false for read tool: %s', (tool) => {
     expect(isWriteOperation(tool)).toBe(false)

@@ -8,14 +8,16 @@ const makeMockClient = (tools: Tool[], callResult: CallToolResult) => ({
   callTool: vi.fn().mockResolvedValue(callResult),
 })
 
-const config: BackendConfig = { command: 'npx', args: ['some-mcp-server'] }
+const stdioConfig: BackendConfig = { command: 'npx', args: ['some-mcp-server'] }
+const httpConfig: BackendConfig = { url: 'https://mcp.example.com/mcp', headers: { Authorization: 'Bearer token' } }
+const config = stdioConfig
 
 describe('connectMcpClient', () => {
   it('connects to the transport on creation', async () => {
     const { connectMcpClient } = await import('./index.js')
     const mockClient = makeMockClient([], { content: [] })
     const mockTransport = {}
-    await connectMcpClient(config, {
+    await connectMcpClient(config, undefined, {
       makeClient: () => mockClient as never,
       makeTransport: () => mockTransport as never,
     })
@@ -28,7 +30,7 @@ describe('connectMcpClient', () => {
       { name: 'search_issues', description: 'Search issues', inputSchema: { type: 'object', properties: {} } },
     ]
     const mockClient = makeMockClient(tools, { content: [] })
-    const backend = await connectMcpClient(config, {
+    const backend = await connectMcpClient(config, undefined, {
       makeClient: () => mockClient as never,
       makeTransport: () => ({}) as never,
     })
@@ -40,7 +42,7 @@ describe('connectMcpClient', () => {
     const { connectMcpClient } = await import('./index.js')
     const callResult: CallToolResult = { content: [{ type: 'text', text: 'ok' }] }
     const mockClient = makeMockClient([], callResult)
-    const backend = await connectMcpClient(config, {
+    const backend = await connectMcpClient(config, undefined, {
       makeClient: () => mockClient as never,
       makeTransport: () => ({}) as never,
     })
@@ -56,10 +58,22 @@ describe('connectMcpClient', () => {
     const { connectMcpClient } = await import('./index.js')
     const mockClient = makeMockClient([], { content: [] })
     let capturedConfig: BackendConfig | undefined
-    await connectMcpClient(config, {
+    await connectMcpClient(config, undefined, {
       makeClient: () => mockClient as never,
       makeTransport: (c) => { capturedConfig = c; return {} as never },
     })
     expect(capturedConfig).toBe(config)
+  })
+
+  it('connects with http config using the url-based transport', async () => {
+    const { connectMcpClient } = await import('./index.js')
+    const mockClient = makeMockClient([], { content: [] })
+    let capturedConfig: BackendConfig | undefined
+    await connectMcpClient(httpConfig, undefined, {
+      makeClient: () => mockClient as never,
+      makeTransport: (c) => { capturedConfig = c; return {} as never },
+    })
+    expect(capturedConfig).toBe(httpConfig)
+    expect(mockClient.connect).toHaveBeenCalled()
   })
 })

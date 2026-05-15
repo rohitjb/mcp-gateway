@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "mcp-gateway": {
+      "type": "stdio",
+      "command": "pnpm",
+      "args": ["exec", "tsx", "src/index.ts", "serve", "--config", "./gateway.config.json"]
+    }
+  }
+}

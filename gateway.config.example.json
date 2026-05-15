@@ -1,23 +1,36 @@
 {
   "firebase": {
-    "projectId": "your-firebase-project-id",
-    "credentialsPath": "/Users/you/.mcp-gateway/firebase-service-account.json"
+    "projectId": "your-firebase-project-id"
   },
   "backends": {
     "atlassian": {
       "command": "npx",
-      "args": ["@atlassian/mcp-server-jira"]
+      "args": ["-y", "mcp-remote@latest", "https://mcp.atlassian.com/v1/mcp/authv2"]
     },
     "github": {
       "command": "npx",
-      "args": ["@modelcontextprotocol/server-github"],
-      "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": "your-token-here"
-      }
+      "args": ["-y", "mcp-remote@latest", "https://api.githubcopilot.com/mcp/"]
     },
     "teams": {
       "command": "npx",
       "args": ["-y", "mcp-remote@latest", "https://agent365.svc.cloud.microsoft/agents/tenants/YOUR_TENANT_ID/servers/mcp_TeamsServer"]
+    },
+    "firebase": {
+      "command": "npx",
+      "args": ["-y", "firebase-tools@latest", "mcp"]
+    },
+    "miro": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote@latest", "https://mcp.miro.com/"]
+    },
+    "figma": {
+      "command": "npx",
+      "args": ["-y", "@tmegit/figma-developer-mcp", "--port", "3334"],
+      "env": {
+        "FIGMA_API_KEY": "YOUR_FIGMA_PAT"
+      },
+      "url": "http://127.0.0.1:3334/sse",
+      "transport": "sse"
     }
   }
 }

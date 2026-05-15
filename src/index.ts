@@ -3,10 +3,10 @@ import { detectIdentity } from './identity/detect.js'
 import { execFile } from './utils/exec.js'
 import { makeGetUserRole } from './rbac/index.js'
 import { RoleCache } from './rbac/roleCache.js'
-import { loadGatewayConfig, makeFetchRoleFromFirestore } from './rbac/firestore.js'
+import { loadGatewayConfig, initFirestore, makeFetchRoleFromFirestore } from './rbac/firestore.js'
+import { runGoogleLogin } from './login/index.js'
 import { checkAccess } from './gateway/rbac.js'
 import { ToolRegistry } from './gateway/registry.js'
-import type { BackendClient } from './gateway/registry.js'
 import { connectMcpClient } from './gateway/mcpClient/index.js'
 import { searchAll } from './router/index.js'
 import { classify } from './router/classify.js'
@@ -29,17 +29,13 @@ export const dispatch = async (args: string[]): Promise<void> => {
       const configPath = resolve(opts.config)
       const config = await loadGatewayConfig(configPath)
 
+      await initFirestore(config.firebase)
+
       const cache = new RoleCache()
       const fetchRole = makeFetchRoleFromFirestore(config.firebase)
       const getUserRole = makeGetUserRole({ fetchRole, cache })
 
-      const backends: Record<string, BackendClient> = {}
-      for (const [name, backendConfig] of Object.entries(config.backends)) {
-        backends[name] = await connectMcpClient(backendConfig)
-      }
-
-      const registry = new ToolRegistry({ backends })
-      await registry.initialize()
+      const registry = new ToolRegistry()
 
       const classifyFn = (query: string) => Promise.resolve(classify(query))
 
@@ -48,6 +44,8 @@ export const dispatch = async (args: string[]): Promise<void> => {
           registry.callTool(`${backend}_search`, { query }),
         )
 
+      // Start the MCP transport immediately so the client gets an initialize response
+      // without waiting for backend connections (which can take 10–30 s with OAuth).
       await startGatewayServer({
         registry,
         detectIdentity: () => detectIdentity({ exec: execFile }),
@@ -55,6 +53,28 @@ export const dispatch = async (args: string[]): Promise<void> => {
         checkAccess,
         searchAll: query => searchAll(query, { classify: classifyFn, callBackendSearch }),
       })
+
+      if (!config.backends || typeof config.backends !== 'object') {
+        process.stderr.write('[gateway] warning: gateway.config.json is missing "backends" — see gateway.config.example.json\n')
+        return
+      }
+
+      // Connect each backend in the background; tools become available as each one comes online.
+      for (const [name, backendConfig] of Object.entries(config.backends)) {
+        connectMcpClient(backendConfig, name)
+          .then(client => registry.addBackend(name, client))
+          .catch((err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err)
+            process.stderr.write(`[gateway] backend "${name}" failed to connect: ${msg}\n`)
+          })
+      }
+    })
+
+  program
+    .command('login')
+    .description('Authenticate with Google (ADC) so the gateway can connect to Firebase')
+    .action(async () => {
+      await runGoogleLogin()
     })
 
   await program.parseAsync(['node', 'mcp-gateway', ...args])
