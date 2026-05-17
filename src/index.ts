@@ -44,30 +44,60 @@ export const dispatch = async (args: string[]): Promise<void> => {
           registry.callTool(`${backend}_search`, { query }),
         )
 
+      // Backends connect in the background, but the first tools/list response
+      // must include their tools — otherwise the MCP client only ever sees
+      // search_all (clients don't always re-snapshot on list_changed).
+      // We expose a "backendsReady" promise that handleListTools awaits, and
+      // resolve it as soon as the initial connect round finishes — or after
+      // BACKENDS_READY_TIMEOUT_MS, whichever comes first, so a slow OAuth
+      // flow doesn't block startup forever.
+      const BACKENDS_READY_TIMEOUT_MS = 25_000
+      let resolveBackendsReady: () => void = () => {}
+      const backendsReadyDeferred = new Promise<void>(r => { resolveBackendsReady = r })
+      const backendsReady = Promise.race([
+        backendsReadyDeferred,
+        new Promise<void>(r => setTimeout(r, BACKENDS_READY_TIMEOUT_MS)),
+      ])
+
       // Start the MCP transport immediately so the client gets an initialize response
       // without waiting for backend connections (which can take 10–30 s with OAuth).
-      await startGatewayServer({
+      const server = await startGatewayServer({
         registry,
         detectIdentity: () => detectIdentity({ exec: execFile }),
         getUserRole,
         checkAccess,
         searchAll: query => searchAll(query, { classify: classifyFn, callBackendSearch }),
+        backendsReady,
       })
 
       if (!config.backends || typeof config.backends !== 'object') {
         process.stderr.write('[gateway] warning: gateway.config.json is missing "backends" — see gateway.config.example.json\n')
+        resolveBackendsReady()
         return
       }
 
       // Connect each backend in the background; tools become available as each one comes online.
-      for (const [name, backendConfig] of Object.entries(config.backends)) {
+      // After each backend registers its tools, notify the client so it re-fetches the tool list
+      // (used both for late arrivals past the timeout and for clients that honor list_changed).
+      const backendPromises = Object.entries(config.backends).map(([name, backendConfig]) =>
         connectMcpClient(backendConfig, name)
-          .then(client => registry.addBackend(name, client))
+          .then(async client => {
+            await registry.addBackend(name, client)
+            await server.sendToolListChanged().catch((err: unknown) => {
+              const msg = err instanceof Error ? err.message : String(err)
+              process.stderr.write(`[gateway] failed to send tools/list_changed: ${msg}\n`)
+            })
+          })
           .catch((err: unknown) => {
             const msg = err instanceof Error ? err.message : String(err)
             process.stderr.write(`[gateway] backend "${name}" failed to connect: ${msg}\n`)
-          })
-      }
+          }),
+      )
+
+      void Promise.allSettled(backendPromises).then(() => {
+        process.stderr.write(`[gateway] all backends settled — releasing tools/list\n`)
+        resolveBackendsReady()
+      })
     })
 
   program

@@ -39,6 +39,38 @@ describe('handleListTools', () => {
     expect(names).toContain('search_all')
     expect(result.tools).toHaveLength(4) // 3 registry + search_all
   })
+
+  it('awaits backendsReady before snapshotting the registry tools', async () => {
+    const { handleListTools } = await import('./server.js')
+    const registryTools: Tool[] = []
+    const getTools = vi.fn().mockImplementation(() => [...registryTools])
+    let resolveReady!: () => void
+    const backendsReady = new Promise<void>(r => { resolveReady = r })
+
+    const deps: ServerDeps = {
+      ...baseDeps(),
+      registry: { getTools, callTool: vi.fn().mockResolvedValue(makeResult('ok')) },
+      backendsReady,
+    }
+
+    const pending = handleListTools(deps)
+
+    // backends not yet registered — push a tool to simulate late registration
+    registryTools.push(makeTool('atlassian_search_issues'))
+    resolveReady()
+
+    const result = await pending
+    const names = result.tools.map(t => t.name)
+    expect(names).toContain('atlassian_search_issues')
+    expect(names).toContain('search_all')
+  })
+
+  it('returns immediately when backendsReady is omitted (backward compatible)', async () => {
+    const { handleListTools } = await import('./server.js')
+    const deps = baseDeps()
+    const result = await handleListTools(deps)
+    expect(result.tools.length).toBeGreaterThan(0)
+  })
 })
 
 describe('handleCallTool — search_all routing', () => {

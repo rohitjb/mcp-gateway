@@ -32,11 +32,17 @@ export interface ServerDeps {
   getUserRole: (email: string) => Promise<Role>
   checkAccess: (toolName: string, role: Role) => void
   searchAll: (query: string) => Promise<CallToolResult>
+  // Resolves once all configured backends have finished their initial connect
+  // attempt (or a sane timeout has elapsed). Gating the first tools/list on
+  // this guarantees the MCP client sees the full proxied tool set on the
+  // initial snapshot instead of just search_all.
+  backendsReady?: Promise<void>
 }
 
-export const handleListTools = async (deps: ServerDeps): Promise<{ tools: Tool[] }> => ({
-  tools: [SEARCH_ALL_TOOL, ...deps.registry.getTools()],
-})
+export const handleListTools = async (deps: ServerDeps): Promise<{ tools: Tool[] }> => {
+  if (deps.backendsReady) await deps.backendsReady
+  return { tools: [SEARCH_ALL_TOOL, ...deps.registry.getTools()] }
+}
 
 export const handleCallTool = async (
   toolName: string,
@@ -71,7 +77,7 @@ export const handleCallTool = async (
 export const createGatewayServer = (deps: ServerDeps): Server => {
   const server = new Server(
     { name: 'mcp-gateway', version: '0.1.0' },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: { listChanged: true } } },
   )
 
   server.setRequestHandler(ListToolsRequestSchema, () => handleListTools(deps))
@@ -87,8 +93,9 @@ export const createGatewayServer = (deps: ServerDeps): Server => {
   return server
 }
 
-export const startGatewayServer = async (deps: ServerDeps): Promise<void> => {
+export const startGatewayServer = async (deps: ServerDeps): Promise<Server> => {
   const server = createGatewayServer(deps)
   const transport = new StdioServerTransport()
   await server.connect(transport)
+  return server
 }
