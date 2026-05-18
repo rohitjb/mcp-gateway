@@ -1,14 +1,12 @@
 # MCP Gateway
 
-**A universal security and routing layer for enterprise AI tool access.**
+**One connection between your AI assistant and every enterprise tool — with identity, RBAC, and routing built in.**
 
-MCP Gateway sits between your AI assistant (Claude, GitHub Copilot, OpenAI) and every enterprise service it needs to reach. Instead of giving your AI client a direct, unchecked connection to Jira, GitHub, Figma, and Firebase, you give it one connection — to the gateway. The gateway handles identity, permissions, and routing.
+Today, plugging Claude / Copilot / OpenAI into Jira, GitHub, Firebase and Figma means N independent connections, each with its own credentials and no concept of *who* is asking. Anyone with the client config can call anything. MCP Gateway collapses those N connections into one and enforces per-user permissions in front of every backend, so you can let `dev` accounts read freely but block writes to production systems without touching each tool individually.
 
 ---
 
 ## The Problem It Solves
-
-Modern AI assistants can call tools. Without a gateway, each tool connection is independent: your AI client gets raw access to every service, with no concept of who is asking, what they are allowed to do, or which service should handle a given request.
 
 ```
 Without Gateway                      With MCP Gateway
@@ -85,6 +83,16 @@ Without Gateway                      With MCP Gateway
 6. **Backend** executes the call and returns the result upstream to the AI client.
 
 The built-in `search_all` tool is special: it bypasses RBAC (always read-only), runs the query through the keyword classifier, and fans out to the most relevant backends automatically.
+
+### When a Backend is Unreachable
+
+Backends connect in the background after startup, so the gateway never blocks the AI client on a slow or broken service:
+
+- **One backend fails to start** — the gateway logs `[gateway] backend "<name>" failed to connect: <reason>` to stderr and continues. Other backends are unaffected. Tools from the failed backend simply do not appear in `tools/list`.
+- **Initial connect is slow** — `tools/list` waits up to 25 seconds (`BACKENDS_READY_TIMEOUT_MS`) for the first connect round, then returns whatever is ready. Late arrivals are pushed via `tools/list_changed`.
+- **A backend dies mid-session** — calls to its tools will fail at request time and surface the underlying error to the AI client. The gateway does not currently auto-reconnect; restart it to recover.
+
+The gateway itself only fails to start if Firestore initialization fails (see [Troubleshooting](#troubleshooting)) — every backend error is non-fatal.
 
 ---
 
@@ -284,7 +292,101 @@ Roles are stored per-user in Firestore and cached in memory to avoid redundant l
 | `lead` | ✅ | ✅ |
 | `dev` | ✅ | ❌ |
 
-Write operations are identified automatically by verb in the tool name — `create`, `update`, `delete`, `edit`, `send`, `post`, `comment`, `assign`, `close`, `merge`, `publish`, and others are all treated as writes. No per-backend configuration needed.
+### How "write" is detected
+
+The gateway has no per-backend tool catalog. Instead it pattern-matches the tool name against a single regex of write verbs:
+
+```
+create | update | delete | edit | add | remove | send | post | reply |
+comment | assign | close | reopen | resolve | transition | move |
+publish | archive | rename | import | invite | approve | reject |
+merge | write
+```
+
+A tool is classified as a write if its name (after the backend prefix) contains any of these verbs as a token — e.g. `github_create_pull_request` → write, `atlassian_searchJiraIssuesUsingJql` → read.
+
+### Known limitations of this approach
+
+- **Verbs in noun position are still treated as writes.** `*_delete_status` or `*_create_template_list` will be blocked for `dev` even if the tool is read-only. Conversely, a hypothetical `*_clobber_database` would slip through because `clobber` isn't in the verb list.
+- **Backends that don't follow `verb_noun` naming may misclassify.** Most MCP servers do follow the convention, but third-party backends are free to do otherwise.
+- **No per-tool override exists today.** You cannot currently allowlist or blocklist a specific tool by name in `gateway.config.json`. If you hit a misclassification you have two options: rename the tool upstream, or run two separate gateway processes with different role assignments. A config escape hatch (`overrides: { write: [...], read: [...] }`) is on the roadmap — see [issues](https://github.com/rohitjb/mcp-gateway/issues) to track or +1.
+
+The verb regex lives in [`src/gateway/rbac.ts`](src/gateway/rbac.ts) if you want to fork and customize it.
+
+---
+
+## Security Model & Limitations
+
+The gateway is designed for **trusted, identified developers inside a single organization** — not for untrusted multi-tenant or public exposure. Be explicit with yourself about what it does and does not give you:
+
+### What the gateway provides
+
+- A single chokepoint for tool access, so revoking a backend (rotating a GitHub PAT, removing a Figma key) instantly cuts off every AI client at once.
+- Per-user RBAC enforced server-side, with role assignments stored centrally in Firestore.
+- A consistent audit surface (stderr today; structured logs are on the roadmap) for every tool call routed through it.
+
+### What it does not provide (yet)
+
+- **Identity is self-reported.** The caller's email comes from the `GATEWAY_USER_EMAIL` env var, `git config --global user.email`, or `gh api user` — in that order. None of these are cryptographically verified. Any user with shell access to the host can claim to be anyone whose email exists in Firestore. This is acceptable when every developer runs the gateway in their own local process under their own OS user, but **it is not acceptable as a hosted multi-tenant service** without an additional identity layer.
+- **No request-level authentication on the hosted HTTP transport.** If you deploy the gateway to Cloud Run and expose `/mcp` publicly, anyone who can reach it can send `GATEWAY_USER_EMAIL` headers. Put it behind an IAP, OIDC proxy, or VPN until proper auth lands.
+- **No audit log persistence.** Tool calls are written to stderr only. Plumbing them to a durable sink (BigQuery, Cloud Logging, etc.) is on the roadmap.
+- **Verb-based RBAC is heuristic, not exhaustive.** See the [limitations above](#known-limitations-of-this-approach).
+- **No rate limiting or quota enforcement** between the AI client and backends.
+
+### Recommended deployment posture today
+
+Local-per-developer (the default in this README) is the safest model: each developer runs their own gateway process, their OS account gates `git config`, and there's no shared attack surface. Use the hosted/cloud variant only behind an existing trust boundary (corporate VPN, IAP-protected Cloud Run service, etc.) until verified identity is implemented.
+
+---
+
+## Troubleshooting
+
+### Firestore auth failures
+
+**Symptom:** Gateway exits at startup with `Could not load the default credentials` or `permission denied on projects/<id>`.
+
+- Run `pnpm exec tsx src/index.ts login` once to populate Application Default Credentials. The login command opens a browser and stores credentials in `~/.config/gcloud/application_default_credentials.json`.
+- Confirm the project ID in `gateway.config.json` matches a project your Google account has at least `roles/datastore.user` on.
+- If running in CI or a headless environment, set `GOOGLE_APPLICATION_CREDENTIALS` to a service account key file with Firestore access instead.
+- Verify the `users` collection exists in Firestore and that your email has a document with `{ role: "dev" | "lead" }`. The gateway throws on first tool call if your email isn't found.
+
+### A backend never appears in `tools/list`
+
+**Symptom:** `search_all` works but tools from a specific backend (e.g. `github_*`) are missing.
+
+- Check the gateway's stderr. Backend failures log as `[gateway] backend "<name>" failed to connect: <reason>`.
+- For **stdio** backends, the most common cause is a missing or invalid token in the `env` block of `gateway.config.json` (e.g. an expired `GITHUB_PERSONAL_ACCESS_TOKEN`).
+- For **HTTP/OAuth** backends (Atlassian, Miro, Teams), the first connection opens a browser for consent. If you run the gateway under a process supervisor with no display, OAuth will hang and time out after 25 seconds. Run `pnpm dev` interactively once to complete the OAuth flow; tokens are then cached for subsequent runs.
+- For **local HTTP** backends (Figma), check that `lsof -ti :<port>` is free before startup — the gateway will kill the existing process, but only if it has permission.
+
+### Tool call returns `Access denied: write operations require lead role`
+
+The gateway is doing its job — your Firestore role is `dev`. Either change your document to `{ role: "lead" }`, or accept that this tool is correctly write-classified. If you believe the classification is wrong, see [Known limitations](#known-limitations-of-this-approach).
+
+### Identity not found at tool-call time
+
+**Symptom:** `Identity not found. Set GATEWAY_USER_EMAIL or configure git user.email.`
+
+Set the env var explicitly in your AI client config:
+
+```json
+"env": { "GATEWAY_USER_EMAIL": "you@company.com" }
+```
+
+This is also the right knob for testing as a different role without re-editing git config.
+
+---
+
+## Contributing & Roadmap
+
+The repo is at v0.1.0 — the bones are solid, but several areas are explicitly open for contribution. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, and the [pinned issues](https://github.com/rohitjb/mcp-gateway/issues) for in-flight work. Headline roadmap items:
+
+- **Verified identity** — replace self-reported email with OIDC token validation, so the hosted deployment is safe outside a VPN.
+- **Audit log persistence** — structured per-call logs to BigQuery / Cloud Logging.
+- **RBAC config overrides** — explicit per-tool allow/block lists for the verb classifier's misses.
+- **More backends** — Slack, Linear, Notion, Sentry. Adding one is a single block in `gateway.config.json` plus an entry in the [Supported Backends](#supported-backends) table.
+
+If any of these match what you want to build, open an issue first so we can sanity-check scope before you invest in a PR.
 
 ---
 
