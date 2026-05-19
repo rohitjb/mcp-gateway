@@ -1,0 +1,11 @@
+{
+  "firebase": {
+    "projectId": "mcp-gateway-demo"
+  },
+  "backends": {
+    "demo": {
+      "command": "pnpm",
+      "args": ["exec", "tsx", "/app/docker/mock-backend/index.ts"]
+    }
+  }
+}

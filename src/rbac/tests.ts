@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { RoleCache } from './roleCache.js'
 import type { RbacDeps } from './index.js'
 
@@ -93,5 +93,78 @@ describe('getUserRole', () => {
     const role = await getUserRole('dev@example.com')
     expect(role).toBe('dev')
     expect(deps.fetchRole).toHaveBeenCalledTimes(2) // retried after failure
+  })
+})
+
+// ─── initFirestore (emulator branch) ──────────────────────────────────────────
+
+// Mock firebase-admin so we can assert how initializeApp is called without
+// requiring real credentials or a network round-trip.
+const initializeApp = vi.fn()
+const applicationDefault = vi.fn(() => ({ kind: 'fake-credential' }))
+const firestoreGet = vi.fn(() => Promise.resolve({ exists: false }))
+const appDelete = vi.fn(() => Promise.resolve())
+const adminApps: unknown[] = []
+
+vi.mock('firebase-admin', () => ({
+  default: {
+    get apps() { return adminApps },
+    initializeApp: (opts: unknown) => {
+      initializeApp(opts)
+      adminApps.push({})
+    },
+    credential: { applicationDefault },
+    firestore: () => ({
+      collection: () => ({ doc: () => ({ get: firestoreGet }) }),
+    }),
+    app: () => ({ delete: appDelete }),
+  },
+}))
+
+describe('initFirestore', () => {
+  const originalEmulatorHost = process.env['FIRESTORE_EMULATOR_HOST']
+
+  beforeEach(() => {
+    initializeApp.mockClear()
+    applicationDefault.mockClear()
+    firestoreGet.mockClear()
+    appDelete.mockClear()
+    adminApps.length = 0
+  })
+
+  afterEach(() => {
+    if (originalEmulatorHost === undefined) {
+      delete process.env['FIRESTORE_EMULATOR_HOST']
+    } else {
+      process.env['FIRESTORE_EMULATOR_HOST'] = originalEmulatorHost
+    }
+  })
+
+  it('skips real credentials and the connectivity probe when FIRESTORE_EMULATOR_HOST is set', async () => {
+    process.env['FIRESTORE_EMULATOR_HOST'] = 'localhost:8080'
+    const { initFirestore } = await import('./firestore.js')
+
+    await initFirestore({ projectId: 'demo-project' })
+
+    expect(initializeApp).toHaveBeenCalledOnce()
+    expect(initializeApp).toHaveBeenCalledWith({ projectId: 'demo-project' })
+    // applicationDefault() must not be invoked — it would try to load real credentials
+    expect(applicationDefault).not.toHaveBeenCalled()
+    // The connectivity probe is skipped in emulator mode
+    expect(firestoreGet).not.toHaveBeenCalled()
+  })
+
+  it('uses applicationDefault credentials and probes when FIRESTORE_EMULATOR_HOST is unset', async () => {
+    delete process.env['FIRESTORE_EMULATOR_HOST']
+    const { initFirestore } = await import('./firestore.js')
+
+    await initFirestore({ projectId: 'real-project' })
+
+    expect(applicationDefault).toHaveBeenCalledOnce()
+    expect(initializeApp).toHaveBeenCalledWith({
+      credential: { kind: 'fake-credential' },
+      projectId: 'real-project',
+    })
+    expect(firestoreGet).toHaveBeenCalledOnce()
   })
 })

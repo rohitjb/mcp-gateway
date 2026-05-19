@@ -56,10 +56,21 @@ const isCredentialError = (error: unknown): boolean => {
 
 // Initializes Firebase Admin with Application Default Credentials at server startup.
 // If credentials are missing, fails with clear instructions — run `pnpm exec tsx src/index.ts login` once in a terminal.
+//
+// When FIRESTORE_EMULATOR_HOST is set, skips real credentials entirely — the firebase-admin
+// SDK routes all queries to the emulator and no auth is required. Used by the docker compose
+// quickstart and by any CI / local-dev path that doesn't want a real GCP project.
 export const initFirestore = async (config: FirestoreConfig): Promise<void> => {
   const { default: admin } = await import('firebase-admin')
 
   if (admin.apps.length) return
+
+  const emulatorHost = process.env['FIRESTORE_EMULATOR_HOST']
+  if (emulatorHost) {
+    admin.initializeApp({ projectId: config.projectId })
+    process.stderr.write(`[firebase] using Firestore emulator at ${emulatorHost}\n`)
+    return
+  }
 
   admin.initializeApp({
     credential: admin.credential.applicationDefault(),

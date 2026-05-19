@@ -1,0 +1,11 @@
+{
+  "name": "mock-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Minimal stdio MCP server used by the gateway's docker compose quickstart. Demonstrates the two-tool surface (one read, one write) needed to show RBAC working.",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "start": "tsx index.ts"
+  }
+}
