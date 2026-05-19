@@ -96,6 +96,40 @@ The gateway itself only fails to start if Firestore initialization fails (see [T
 
 ---
 
+## Try it in 30 Seconds (Docker Compose)
+
+If you just want to see the gateway in action — no Firebase project, no Google login, no real tokens — `docker compose up` will boot the gateway against a local Firestore emulator with a bundled mock backend that exposes one read tool and one write tool. You can watch RBAC actually block a write.
+
+```bash
+git clone https://github.com/rohitjb/mcp-gateway
+cd mcp-gateway
+docker compose up --build
+```
+
+The first run pulls the Firestore emulator image (~1.5 GB) and builds the gateway image; subsequent runs reuse both. Wait for `[gateway] all backends settled` in the logs, then open a second terminal and try the demo tools using the bundled helper script:
+
+```bash
+# Default identity = lead@example.com (read + write):
+./docker/demo-call.sh demo_create '{"name":"widget"}'
+# → {"created":{"id":42,"name":"widget"}}
+
+# Same write as the dev-role user — RBAC blocks it:
+./docker/demo-call.sh demo_create '{"name":"widget"}' viewer@example.com
+# → Access denied: write operations require lead role (attempted: demo_create)
+
+# Reads pass for the dev user:
+./docker/demo-call.sh demo_search '{"query":"hello"}' viewer@example.com
+# → {"results":[{"id":1,"title":"Mock result for: hello"},...]}
+```
+
+The script is a thin wrapper around `docker exec -i mcp-gateway-quickstart pnpm exec tsx src/index.ts serve …`. It sends `initialize` + `tools/list` first (so the gateway has time to register backends before the call lands) and then your `tools/call`. See [docker/demo-call.sh](docker/demo-call.sh) if you want to script your own variants.
+
+The seeded users are `lead@example.com` (role: `lead`) and `viewer@example.com` (role: `dev`); both live in [docker/seed-firestore.ts](docker/seed-firestore.ts).
+
+**This is a demo, not a deployment.** It is not a substitute for the real setup below — there's no AI-client integration, no real backends, and the emulator is wiped on `docker compose down`. Use it to validate the gateway runs on your machine, then proceed to the production setup if you want to use it for real work.
+
+---
+
 ## Running Locally
 
 ### Prerequisites
@@ -172,16 +206,20 @@ Each backend is one of three transport types:
 
 ### 4. Add users to Firestore
 
-In your Firebase console, create a collection named `users`. Each document is keyed by email:
+In your Firebase console, create a single document at `rbac/config` with two arrays — one of `dev` users and one of `leads`:
 
 ```
-users/
-  alice@company.com   →  { role: "lead" }
-  bob@company.com     →  { role: "dev" }
+rbac/
+  config →  {
+    leads: ["alice@company.com"],
+    dev:   ["bob@company.com"]
+  }
 ```
 
 `lead` — full read + write access to all tools  
 `dev` — read-only; write operations are blocked at the gateway
+
+To add a user later, append their email to the appropriate array in the same document.
 
 ### 5. Wire it into your AI client
 

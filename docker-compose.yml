@@ -1,0 +1,67 @@
+# MCP Gateway quickstart — boots a working gateway with zero external accounts.
+#
+# Three services, started in order:
+#   1. firestore-emulator   — Google's official Firestore emulator
+#   2. seeder               — one-shot: writes the demo RBAC config and exits
+#   3. gateway              — the MCP gateway, configured to use the emulator
+#                             and the bundled mock backend
+#
+# After `docker compose up`, exec into the gateway container to send MCP
+# requests over stdio. See README "Try it in 30 seconds" for the commands.
+
+services:
+  firestore-emulator:
+    image: gcr.io/google.com/cloudsdktool/cloud-sdk:emulators
+    container_name: mcp-gateway-firestore-emulator
+    command:
+      - gcloud
+      - emulators
+      - firestore
+      - start
+      - --host-port=0.0.0.0:8080
+      - --project=mcp-gateway-demo
+    expose:
+      - "8080"
+    healthcheck:
+      # cloud-sdk:emulators ships curl but not wget. The emulator's root
+      # endpoint returns 200 OK once it's accepting connections.
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
+
+  seeder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mcp-gateway-seeder
+    depends_on:
+      firestore-emulator:
+        condition: service_healthy
+    environment:
+      FIRESTORE_EMULATOR_HOST: firestore-emulator:8080
+      FIRESTORE_PROJECT_ID: mcp-gateway-demo
+    command: ["pnpm", "exec", "tsx", "docker/seed-firestore.ts"]
+    restart: "no"
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mcp-gateway-quickstart
+    depends_on:
+      seeder:
+        condition: service_completed_successfully
+    environment:
+      FIRESTORE_EMULATOR_HOST: firestore-emulator:8080
+      # Default identity for the long-running container's gateway process.
+      # Override per-session via `docker exec -e GATEWAY_USER_EMAIL=...`.
+      GATEWAY_USER_EMAIL: lead@example.com
+    # Keep stdin open so StdioServerTransport doesn't see EOF and exit.
+    stdin_open: true
+    tty: false
+    # The CMD inherited from the Dockerfile starts the gateway on stdio. It will
+    # log startup progress (Firestore connect, backend ready) to the compose
+    # output, which is the visible "everything works" signal. Each AI-client
+    # session then exec's its own gateway instance — see the README.

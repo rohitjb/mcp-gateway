@@ -4,7 +4,17 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
-_No unreleased changes yet._
+### Added
+
+- **Docker Compose quickstart** — `docker compose up` boots the gateway against a local Firestore emulator with a bundled mock backend (one read tool, one write tool), so evaluators can see RBAC blocking a write without provisioning a real GCP project or backend tokens. See the new "Try it in 30 Seconds" section in the README.
+- **Firestore emulator support in `initFirestore`** — when `FIRESTORE_EMULATOR_HOST` is set, the gateway skips real credentials and routes all queries to the emulator. Useful for CI integration tests and local dev, not just the docker quickstart.
+- **Mock stdio MCP backend** under `docker/mock-backend/` — minimal example of a backend the gateway can talk to. Doubles as a reference for anyone writing their own.
+
+### Fixed
+
+- **README RBAC schema documentation** — the "Add users to Firestore" section described the wrong shape (`users/{email} → { role }`). The code has always read `rbac/config → { dev: [emails], leads: [emails] }`; docs now match.
+- **Smart router missed miro entirely** — `KNOWN_BACKENDS` in `src/router/classify.ts` was hardcoded to five backends and never included `miro`, so `search_all` would never route queries there even when miro was configured. Added miro with whiteboard/sticky/brainstorm keywords.
+- **Stale classify test** — `src/router/classify.tests.ts` asserted four backends in the "no keywords match" fallback after `figma` had been added (now expects six with the miro fix above).
 
 ## [0.1.0] — 2026-05-18
 

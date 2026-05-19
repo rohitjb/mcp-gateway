@@ -1,0 +1,18 @@
+node_modules
+dist
+.git
+.gitignore
+*.log
+.env
+.env.*
+.vscode
+.idea
+.DS_Store
+
+# The developer's real config — must not be baked into the image.
+# The container uses docker/gateway.config.docker.json instead.
+gateway.config.json
+
+# Internal Claude / planning artifacts
+.claude
+CLAUDE.md
