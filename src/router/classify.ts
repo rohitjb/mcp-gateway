@@ -1,4 +1,4 @@
-const KNOWN_BACKENDS = ['atlassian', 'firebase', 'teams', 'github', 'figma'] as const
+const KNOWN_BACKENDS = ['atlassian', 'firebase', 'teams', 'github', 'figma', 'miro'] as const
 export type Backend = (typeof KNOWN_BACKENDS)[number]
 
 const KEYWORDS: Record<Backend, string[]> = {
@@ -7,6 +7,7 @@ const KEYWORDS: Record<Backend, string[]> = {
   teams: ['message', 'channel', 'chat', 'teams', 'meeting', 'post', 'thread', '#'],
   github: ['pr', 'pull request', 'commit', 'repo', 'repository', 'branch', 'merge', 'release', 'workflow', 'action', 'github', 'gist', 'fork', 'star', 'review'],
   figma: ['figma', 'design', 'component', 'frame', 'layer', 'prototype', 'mockup', 'wireframe', 'style', 'asset', 'file', 'node'],
+  miro: ['miro', 'whiteboard', 'sticky', 'brainstorm', 'mindmap', 'cluster', 'workshop', 'board', 'canvas'],
 }
 
 const score = (query: string, backend: Backend): number => {

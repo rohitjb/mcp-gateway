@@ -4,7 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
-_No unreleased changes yet._
+### Fixed
+
+- **Smart router missed miro entirely** — `KNOWN_BACKENDS` in `src/router/classify.ts` was hardcoded to five backends and never included `miro`, so `search_all` would never route queries there even when miro was configured. Added miro with whiteboard/sticky/brainstorm keywords.
+- **Stale classify test** — `src/router/classify.tests.ts` asserted four backends in the "no keywords match" fallback after `figma` had been added (now expects six with the miro fix above).
 
 ## [0.1.0] — 2026-05-18
 

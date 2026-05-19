@@ -19,11 +19,18 @@ describe('classify', () => {
 
   it('returns all backends when no keywords match', () => {
     const result = classify('something completely unrelated')
-    expect(result).toHaveLength(4)
+    expect(result).toHaveLength(6)
     expect(result).toContain('firebase')
     expect(result).toContain('atlassian')
     expect(result).toContain('teams')
     expect(result).toContain('github')
+    expect(result).toContain('figma')
+    expect(result).toContain('miro')
+  })
+
+  it('routes whiteboard/sticky queries to miro first', () => {
+    expect(classify('move sticky notes on the whiteboard')[0]).toBe('miro')
+    expect(classify('open my miro board')[0]).toBe('miro')
   })
 
   it('ranks by keyword hit count — more matches = higher priority', () => {
