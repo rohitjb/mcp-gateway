@@ -4,6 +4,9 @@
 CLAUDE.md
 .claude.local.md
 
+# Internal planning docs (kept local, not published)
+docs/superpowers/
+
 # MCP Gateway secrets
 gateway.config.json
 firebase-service-account.json
