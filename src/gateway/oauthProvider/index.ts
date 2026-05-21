@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
-import { createServer } from 'node:http'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { waitForOAuthCallback, OAUTH_CALLBACK_PORT } from '../oauthCallbackServer/index.js'
 import { auth } from '@modelcontextprotocol/sdk/client/auth.js'
 import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js'
 import type {
@@ -11,7 +11,6 @@ import type {
 } from '@modelcontextprotocol/sdk/shared/auth.js'
 
 const OAUTH_DIR = join(homedir(), '.mcp-gateway', 'oauth')
-const CALLBACK_PORT = 8765
 
 export class GatewayOAuthProvider implements OAuthClientProvider {
   private _tokens?: OAuthTokens
@@ -35,7 +34,7 @@ export class GatewayOAuthProvider implements OAuthClientProvider {
   }
 
   get redirectUrl(): string {
-    return `http://localhost:${CALLBACK_PORT}/callback`
+    return `http://localhost:${OAUTH_CALLBACK_PORT}/callback`
   }
 
   get clientMetadata(): OAuthClientMetadata {
@@ -96,39 +95,17 @@ export class GatewayOAuthProvider implements OAuthClientProvider {
       `[gateway] If browser doesn't open, visit: ${authorizationUrl}\n`,
     )
 
-    const code = await new Promise<string>((resolve, reject) => {
-      const server = createServer((req, res) => {
-        if (!req.url) return
-        const url = new URL(req.url, `http://localhost:${CALLBACK_PORT}`)
-        if (url.pathname !== '/callback') return
+    const state = authorizationUrl.searchParams.get('state') ?? ''
+    const codePromise = waitForOAuthCallback(state)
 
-        const code = url.searchParams.get('code')
-        const error = url.searchParams.get('error')
-        const html = code
-          ? '<h1>Authorization successful! You can close this tab.</h1>'
-          : `<h1>Authorization failed: ${error ?? 'unknown error'}</h1>`
+    try {
+      const { default: open } = await import('open')
+      await open(authorizationUrl.toString())
+    } catch {
+      // Browser open failed — user can visit the URL shown above manually
+    }
 
-        res.writeHead(200, { 'Content-Type': 'text/html' })
-        res.end(`<html><body>${html}</body></html>`)
-        server.close()
-
-        if (code) resolve(code)
-        else reject(new Error(`OAuth authorization failed: ${error ?? 'unknown'}`))
-      })
-
-      server.listen(CALLBACK_PORT, async () => {
-        try {
-          const { default: open } = await import('open')
-          await open(authorizationUrl.toString())
-        } catch {
-          // Browser open failed — user can visit the URL shown above manually
-        }
-      })
-
-      server.on('error', (err: Error) => {
-        reject(new Error(`OAuth callback server error: ${err.message}`))
-      })
-    })
+    const code = await codePromise
 
     // Exchange authorization code for tokens and persist them.
     // After this returns, the next connection attempt will use the saved tokens.
