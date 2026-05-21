@@ -45,7 +45,7 @@ const waitForHttp = async (url: string): Promise<void> => {
       const res = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(1_000) })
       process.stderr.write(`[gateway] local HTTP backend ready at ${url} (status ${res.status})\n`)
       return
-    } catch (err) {
+    } catch (_err) {
       process.stderr.write(`[gateway] waiting for local HTTP backend at ${url} (attempt ${i + 1}/${SPAWN_RETRY_ATTEMPTS})\n`)
       await new Promise(r => setTimeout(r, SPAWN_RETRY_DELAY_MS))
     }
