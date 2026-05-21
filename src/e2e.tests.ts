@@ -9,7 +9,7 @@
  *   - callBackendSearch      (backend MCP tool calls via router)
  *   - BackendClient          (MCP backend servers via registry)
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js'
 
 // Real module implementations under test
